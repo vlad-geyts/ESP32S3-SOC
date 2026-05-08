@@ -22,14 +22,19 @@ namespace Config {
     // 'constexpr' tells the compiler this value is known at compile-time.
     // It is more efficient than 'const' and safer than '#define'.
 
-    constexpr int BtnPanic = 47;
-    //constexpr int LedPin    = 2;
+    
+    // Debug signals
     constexpr int StrobPin  = 21;
 
     // HMI Navigation Buttons
     constexpr int BtnUp    = 4;
     constexpr int BtnDown  = 5;
     constexpr int BtnEnter = 6;
+    constexpr int BtnPanic = 47;
+
+    // ADC inputs & configuration
+    constexpr int BAT_ADC_PIN = 7;  // ADC1_CH6
+    constexpr int REF_ADC_PIN = 8;  // ADC1_CH7
 
     // OLED SPI Pins (FSPI Hardware Primary)
     constexpr int OLED_CS   = 10;
@@ -43,6 +48,9 @@ namespace Config {
     
      // RGB Led
     constexpr int LedPin = WS2812_PIN;
+
+    // Onboard BLUE LED
+    //constexpr int LedPin    = 2;
 
      // Color definitions
     constexpr int TFT_WHITE = 0xFFFF;
