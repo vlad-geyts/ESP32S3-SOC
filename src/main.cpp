@@ -19,24 +19,32 @@
 
 //C++: Namespaces & Constexpr --- 
 namespace Config {
-    // 'constexpr' tells the compiler this value is known at compile-time.
-    // It is more efficient than 'const' and safer than '#define'.
 
-    
-    // Debug signals
+    // === Debug signals ===
     constexpr int StrobPin  = 21;
 
-    // HMI Navigation Buttons
+    // === HMI Navigation Buttons ===
     constexpr int BtnUp    = 4;
     constexpr int BtnDown  = 5;
     constexpr int BtnEnter = 6;
     constexpr int BtnPanic = 47;
 
-    // ADC inputs & configuration
+    // === ADC onfiguration ===
     constexpr int BAT_ADC_PIN = 7;  // ADC1_CH6
     constexpr int REF_ADC_PIN = 8;  // ADC1_CH7
 
-    // OLED SPI Pins (FSPI Hardware Primary)
+    // Precision reference voltage (adjust if your source differs slightly)
+    constexpr float REF_VOLTAGE = 2.50f;
+
+    // Voltage divider ratio: R_bottom / (R_top + R_bottom)
+    // R_top=120k, R_bottom=75k -> 75/(120+75) = 0.3846
+    constexpr float DIVIDER_RATIO = 0.3846f; 
+
+    // 2cells LiPo boundaries (adjust to your chemistry/protection cutoff)
+    constexpr float BAT_FULL_V   = 8.40f; // 4.20V * 2
+    constexpr float BAT_CUTOFF_V = 6.6f; // 3.30V * 2 (safe discharge limit)
+
+    // === OLED SPI Pins (FSPI Hardware Primary) ===
     constexpr int OLED_CS   = 10;
     constexpr int OLED_MOSI = 11;
     constexpr int OLED_SCLK = 12;
@@ -46,13 +54,10 @@ namespace Config {
     constexpr int ScreenWidth  = 128;
     constexpr int ScreenHeight = 128;
     
-     // RGB Led
+     // === RGB Led ===
     constexpr int LedPin = WS2812_PIN;
 
-    // Onboard BLUE LED
-    //constexpr int LedPin    = 2;
-
-     // Color definitions
+     // ===Color definitions ===
     constexpr int TFT_WHITE = 0xFFFF;
     constexpr int TFT_BLUE = 0x001F;
     constexpr int TFT_GREEN = 0x07E0;
@@ -63,7 +68,13 @@ namespace Config {
     constexpr int TFT_PINK = 0xFE19;
     constexpr int TFT_ORANGE = 0xFDA0;
     constexpr int TFT_BLACK = 0x0000;
-     
+
+  // ================= CALIBRATION & FILTERING =================
+    float adc_volts_per_count = 0.0f;
+    bool is_calibrated = false;
+    float bat_voltage_filtered = 0.0f;
+    constexpr int CAL_SAMPLES = 200;
+    constexpr int READ_SAMPLES = 32; 
 }
 
 // Global Objects
@@ -86,13 +97,13 @@ void IRAM_ATTR handleButtonInterrupt();
 void panicTask(void *pvParameters);
 void heartbeatTask(void *pvParameters);
 void initOLED();
-void espInfo();
 void gpioConfig();
 void rdPanicCounter();
 void displayTask(void* pvParameters);
 void logStatus(const char*, uint16_t);
-void FloatingMathExercise();
-void GFXGraphicsExercise();
+void initADC();
+void calibrateADC();
+float readBatteryVoltage();
 
 void setup() {
     // Delay to warm up 
@@ -109,26 +120,22 @@ void setup() {
     //Initialioze OLED on start up
     initOLED();
     
-    // GFX Graphics exercise
-    GFXGraphicsExercise();
+    // Initialize ADC
+    initADC();
 
-    // Pulling ESP3-S3 HW Information
-    espInfo();
+    // Calibrate ADC
+    Serial.println("Calibrating ADC using 2.5V reference...");
+    calibrateADC();
 
-    // Reading "Panic Count" on start up
-    //rdPanicCounter();
-  
+    if (Config::is_calibrated) {
+    Serial.println("✓ Calibration successful. Monitoring battery...");
+  } else {
+    Serial.println("✗ Calibration failed! Check 2.5V reference connection.");
+    while(1) delay(1000); // Halt until fixed
+  }
+ 
     // Create a Queue for Display only 1 Msg
     displayQueue = xQueueCreate(1, sizeof(DisplayMsg));
-
-    // Create the Binary Semaphore for ISR
-    panicSemaphore = xSemaphoreCreateBinary();
-
-    // Attach Interrupt to (BtnPanic)
-    attachInterrupt(digitalPinToInterrupt(Config::BtnPanic), handleButtonInterrupt, FALLING);
-
-    // Panic Handler Task (Highest Priority: 3) on Core 1
-    xTaskCreatePinnedToCore(panicTask, "Panic", 4096, NULL, 3, NULL, 1);
 
     // Standard Heartbeat (Priority: 0) on Core 0
     xTaskCreatePinnedToCore(heartbeatTask, "Heartbeat", 4096, NULL, 0, NULL, 0);
@@ -136,35 +143,19 @@ void setup() {
     // Create Display Task (Priority: 1) on Core 0
     xTaskCreatePinnedToCore(displayTask, "OLED_Task", 4096, NULL, 1, NULL, 0); 
 
-    //logStatus("Setup() Completed...", Config::TFT_CYAN);
+     // Get battery voltage
+    float Vbat = readBatteryVoltage();
 
-    // Reading "Panic Count" on start up
-    rdPanicCounter();
-
-    // Floating Math Exercise
-    FloatingMathExercise();
+    // convert message to string and save it to buffer
+    // Limted to 20 characters per line @ small font
+    sprintf(MsgBuf, "Vbat=%.3f", Vbat);        
+    // Send message string from buffer to OLED display
+    logStatus(MsgBuf, Config::TFT_CYAN);
 }
 
 void loop() {
     // Arduino task is no longer needed
     vTaskDelete(NULL);
-}
-
-// --- Interrupt Service Routine (ISR) ---
-// IRAM_ATTR ensures this runs from RAM, critical for S3 stability
-void IRAM_ATTR handleButtonInterrupt() {
-
-    static BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-
-    // Notify the task that the button was pressed
-    xSemaphoreGiveFromISR(panicSemaphore, &xHigherPriorityTaskWoken);
-    
-    // If the panic task has higher priority, this forces a context switch 
-    // immediately upon exiting the ISR for "instant" feel.
-
-    if (xHigherPriorityTaskWoken) {
-        portYIELD_FROM_ISR();
-    }
 }
 
 void initOLED() {
@@ -191,134 +182,12 @@ void initOLED() {
     LineNumber++;
 }
 
-void GFXGraphicsExercise() {
-
-    // Draw a pixel
-    // void drawPixel(uint16_t x, uint16_t y, uint16_t color);
-    //tft.drawPixel(64, 32, Config::TFT_PINK);
-
-    // Draw line
-    // void drawLine(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1, uint16_t color);
-    //tft.drawLine(0,63,127,0,Config::TFT_GREEN);
-
-    //void drawFastVLine(uint16_t x0, uint16_t y0, uint16_t length, uint16_t color);
-    //void drawFastHLine(uint8_t x0, uint8_t y0, uint8_t length, uint16_t color);
-    // Vertical Line
-    //tft.drawFastVLine(0,0,64,Config::TFT_PINK);
-    // Horizontal Line
-    //tft.drawFastHLine(0,0,128,Config::TFT_PINK);
-
-    // Draw Rectanular
-    //void drawRect(uint16_t x0, uint16_t y0, uint16_t w, uint16_t h, uint16_t color);
-    //void fillRect(uint16_t x0, uint16_t y0, uint16_t w, uint16_t h, uint16_t color);
-    tft.drawRect(0,0,127,63,Config::TFT_GREEN);
-    tft.fillRect(2,2,123,59,Config::TFT_BLUE);
- }
-
-void FloatingMathExercise() {
-    Serial.println("=== ESP32-S3 Float Math Example ===");
-
-    // ─────────────────────────────────────────────────────
-    // 1. MULTIPLICATION
-    // ─────────────────────────────────────────────────────
-    float a = 3.14159f;
-    float b = 2.5f;
-    float mul_result = a * b;
-    Serial.printf("Multiplication: %.5f * %.1f = %.7f\n", a, b, mul_result);
-
-    // convert message to string and save it to buffer
-    // Limted to 20 characters per line @ small font
-    sprintf(MsgBuf, "3.14159*2.5=%.7f", mul_result);       
-    // Send message string from buffer to OLED display
-    logStatus(MsgBuf, Config::TFT_WHITE);
-
-    // ─────────────────────────────────────────────────────
-    // 2. DIVISION
-    // ─────────────────────────────────────────────────────
-    float c = 10.0f;
-    float d = 3.0f;
-    float div_result = c / d;
-    Serial.printf("Division: %.1f / %.1f = %.7f\n", c, d, div_result);
-
-    // convert message to string and save it to buffer
-    // Limted to 20 characters per line @ small font
-    sprintf(MsgBuf, "10.0/3.0=%.7f", div_result);       
-    // Send message string from buffer to OLED display
-    logStatus(MsgBuf, Config::TFT_WHITE);
-
-    // ─────────────────────────────────────────────────────
-    // 3. ROUNDING FLOAT TO INTEGER
-    // ─────────────────────────────────────────────────────
-    float val_pos = 3.78f;
-    float val_neg = -2.3f;
-    float val_half = 2.5f; // halfway case
-
-    // roundf() rounds to nearest integer (halfway cases away from zero)
-    int rounded_pos = (int)roundf(val_pos);
-    int rounded_neg = (int)roundf(val_neg);
-    int rounded_half = (int)roundf(val_half);
-
-    Serial.printf("roundf(%.2f) = %d\n", val_pos, rounded_pos);
-    Serial.printf("roundf(%.1f) = %d\n", val_neg, rounded_neg);
-    Serial.printf("roundf(%.1f) = %d\n", val_half, rounded_half);
-
-    // Alternative: lroundf() returns long (safer for larger values)
-    long l_rounded = lroundf(val_pos);
-    Serial.printf("lroundf(%.2f) = %ld\n", val_pos, l_rounded);
-
-    // Other common rounding functions:
-    Serial.printf("floor(%.2f) = %d\n", val_pos, (int)floorf(val_pos));
-    Serial.printf("ceil(%.2f)  = %d\n", val_pos, (int)ceilf(val_pos));
-}
-
-
-void espInfo() {
-    Serial.println("\n--- Connected via CH343 UART ----------");
-    Serial.println(  "--- ESP32-S3 Dual Core Booting --------");
-    Serial.println("\n--- ESP Hardware Info------------------");
-    
-    // Display ESP Information
-    Serial.printf("Chip ID: %u\n", ESP.getChipModel()); // Get the 24-bit chip ID
-    Serial.printf("CPU Frequency: %u MHz\n", ESP.getCpuFreqMHz()); // Get CPU frequency
-    Serial.printf("SDK Version: %s\n", ESP.getSdkVersion()); // Get SDK version
-
-    // Get and print flash memory information
-    Serial.printf("Flash Chip Size: %u bytes\n", ESP.getFlashChipSize()); // Get total flash size
-   
-    // Get and print SRAM memory information
-    Serial.printf("Internal free Heap at setup: %d bytes\n", ESP.getFreeHeap());
-    if(psramFound()){
-        Serial.printf("Total PSRAM Size: %d bytes", ESP.getPsramSize());
-    } else {
-         Serial.print("No PSRAM found");
-    }
-    Serial.println("\n---------------------------------------");
-    Serial.println("\n");
-}
-
 void gpioConfig() {
    // Configure Hardware using our Namespace
     pinMode(Config::LedPin, OUTPUT);
     pinMode(Config::BtnPanic, INPUT_PULLUP);
     pinMode(Config::StrobPin, OUTPUT);
     digitalWrite(Config::StrobPin, LOW);
-}
-
-void rdPanicCounter() {
-  // Reading "Panic Count" and send value to terminal
-    prefs.begin("system", true); // Open in Read-Only mode
-    // Get existing or default to 0
-    uint32_t count = prefs.getUInt("panic_count", 0);   
-    prefs.end();
-
-    //Serial.printf("Total Lifetime Panic Events: %u\n", prefs.getUInt("panic_count", 0));
-    //Serial.printf("Total Lifetime Panic Events: %u\n", count);
-
-    // convert message to string and save it to buffer
-    // Limted to 20 characters per line @ small font
-    sprintf(MsgBuf, "..Panic events %u..", count);       
-    // Send message string from buffer to OLED display
-    logStatus(MsgBuf, Config::TFT_CYAN);
 }
 
  void logStatus(const char* info, uint16_t color = 0xFFFF) {
@@ -336,76 +205,60 @@ void rdPanicCounter() {
     }
 }
 
-// --- Tasks ---
-void panicTask(void *pvParameters) {
-    for(;;) {
-        if (xSemaphoreTake(panicSemaphore, portMAX_DELAY) == pdPASS) {
-            // Here is a breakdown of the statement above:
-            // xSemaphoreTake(...): Attempts to take (decrement) the semaphore. 
-            // If the semaphore is available (count > 0), the task takes it and proceeds.If not, the task blocks
-
-            // portMAX_DELAY: Specifies that if the semaphore is not available, the task should block 
-            // (enter the "Blocked" state) indefinitely until it becomes available.
-
-            // == pdPASS: Checks if the semaphore was successfully obtained
-
-            detachInterrupt(digitalPinToInterrupt(Config::BtnPanic));
-
-            // --- NVS Logic ---
-            prefs.begin("system", false);                       // Open "system" namespace in R/W mode
-            uint32_t count = prefs.getUInt("panic_count", 0);   // Get existing or default to 0
-            count++;
-
-            // Reset "Panic" counter after 255
-            if (count > 255) {
-                count = 0;
-            }
-
-            // Save new count to Flash
-            prefs.putUInt("panic_count", count);                
-            prefs.end();
-
-            // Send message to terminal
-            Serial.printf("\n[Panic] Event #%u recorded in NVS!\n", count);
-
-            // convert message to string and save it to buffer
-            sprintf(MsgBuf, "PANIC EVENT #%u !", count);        // Limted to 20 characters per line @ small font
-            // Send message string from buffer to OLED display
-            logStatus(MsgBuf, Config::TFT_WHITE);
-
-            bool ledOn = false;
-            // Your strobe feedback logic...
-            for(int i = 0; i < 20; i++) {
-                // Old code to control onboard BLU LED
-                // digitalWrite(Config::LedPin, !digitalRead(Config::LedPin));
-
-                if (ledOn) {
-                     ws2812.setPixelColor(0, ws2812.Color(255, 0, 0));  // Panic (Red)
-                } else {
-                    // Heartbeat OFF
-                    ws2812.setPixelColor(0, 0, 0, 0);
-                }       
-                ws2812.show();          // Push data to the RGB LED
-                ledOn = !ledOn;         // Toggle state
-                vTaskDelay(pdMS_TO_TICKS(50));
-            }
-
-            vTaskDelay(pdMS_TO_TICKS(100));
-            // The task enters the Blocked state and resumes after the time elapses. 
-
-            while(xSemaphoreTake(panicSemaphore, 0) == pdPASS); 
-            // Here is a breakdown of what the code line above:
-            // xSemaphoreTake(panicSemaphore, 0): This attempts to take (P operation) the semaphore panicSemaphore
-            // 0: This is the block time (ticks). It tells FreeRTOS not to wait if the semaphore is empty, but to return immediately.
-            // pdPASS: The function returns pdPASS if the semaphore was successfully taken, or pdFAIL if it was empty.
-            // while(...): The loop continues taking the semaphore until xSemaphoreTake returns pdFAIL, meaning the semaphore is now empty 
-            // (or pdFAIL is returned because it never had any signals).
-
-            attachInterrupt(digitalPinToInterrupt(Config::BtnPanic), handleButtonInterrupt, FALLING);
-        }
-    }
+void initADC() {
+  // Configure ADC resolution & attenuation
+  analogReadResolution(12); // 12-bit (0-4095)
+  
+  // Set attenuation to ~0-3.3V range
+  #if ESP_ARDUINO_VERSION >= ESP_ARDUINO_VERSION_VAL(3, 0, 0)
+    analogSetAttenuation(ADC_ATTEN_DB_11); // Arduino-ESP32 v3.x
+  #else
+    analogSetPinAttenuation(Config::BAT_ADC_PIN, ADC_11db); // Arduino-ESP32 v2.x
+    analogSetPinAttenuation(Config::REF_ADC_PIN, ADC_11db);
+  #endif
 }
 
+void calibrateADC() {
+  uint32_t raw_sum = 0;
+  for (int i = 0; i < Config::CAL_SAMPLES; i++) {
+    raw_sum += analogRead(Config::REF_ADC_PIN);
+    delay(1); // Allow ADC capacitor to settle
+  }
+
+  float raw_avg = raw_sum / (float) Config::CAL_SAMPLES;
+
+  // Sanity check: 2.5V at 11dB atten should read ~3000-3200 on 12-bit ADC
+  if (raw_avg < 2500 || raw_avg > 3800) {
+    Serial.printf("⚠ Ref ADC out of range: %.1f (expected ~3100)\n", raw_avg);
+    return;
+  }
+
+  // Calculate actual volts per ADC count
+  Config::adc_volts_per_count = Config:: REF_VOLTAGE / raw_avg;
+  Config::is_calibrated = true;
+
+  Serial.printf("Ref Raw: %.1f | Gain: %.6f V/count\n", raw_avg, Config::is_calibrated);
+}
+
+float readBatteryVoltage() {
+if (!Config::is_calibrated) return 0.0f;
+
+  uint32_t raw_sum = 0;
+  for (int i = 0; i < Config::READ_SAMPLES; i++) {
+    raw_sum += analogRead(Config::BAT_ADC_PIN);
+  }
+
+  float raw_avg = raw_sum / (float) Config::READ_SAMPLES;
+  float v_divided = raw_avg * Config:: adc_volts_per_count;
+  float v_battery = v_divided / Config::DIVIDER_RATIO;
+
+  // Exponential Moving Average for stable readings
+  const float alpha = 0.15;
+  Config::bat_voltage_filtered = (alpha * v_battery) + ((1.0 - alpha) * Config::bat_voltage_filtered);
+  return Config::bat_voltage_filtered;
+}
+
+// --- Tasks ---
 void displayTask(void* pvParameters) {
     DisplayMsg msg;
     while (true) {  
@@ -431,14 +284,6 @@ void displayTask(void* pvParameters) {
         }    
     }    
 }
-//based on inboard BLU LED connected to GPIO 2
-//void heartbeatTask(void *pvParameters) {
-//     for(;;) { 
-//        digitalWrite(Config::LedPin, !digitalRead(Config::LedPin));
-//        Serial.printf("[Core 0] Normal Heartbeat... (Uptime: %lu s)\n", millis()/1000);
-//        vTaskDelay(pdMS_TO_TICKS(1000)); 
-//    }
-//}
 
 void heartbeatTask(void *pvParameters) {
     bool ledOn = false;
