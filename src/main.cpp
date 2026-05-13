@@ -32,6 +32,7 @@ namespace Config {
     // === ADC onfiguration ===
     constexpr int BAT_ADC_PIN = 7;  // ADC1_CH6
     constexpr int REF_ADC_PIN = 8;  // ADC1_CH7
+    constexpr int OFFSET_ADC_PIN = 9;  // ADC1_CH8 -> Tied to GND
 
     // Precision reference voltage (adjust if your source differs slightly)
     constexpr float REF_VOLTAGE = 2.50f;

@@ -75,3 +75,13 @@ Here is a complete, production-ready Arduino sketch tailored for your ESP32-S3 s
     Add a `100nF` ceramic capacitor from `GPIO7` to `GND` (as close to the pin as possible) to filter high-frequency noise from the voltage divider.
     Keep `GPIO8` (2.5V ref) isolated from digital switching noise. Use a short trace and add a `10kΩ` series resistor if the reference source has high output impedance.
     Ensure your voltage divider resistors are `≥100kΩ` total to minimize battery drain (`<50µA` at 8.4V).
+
+🛠️ Optional: On-Demand Recalibration
+If you want to recalibrate without rebooting (e.g., via serial command or button press), simply call:
+>is_calibrated = false;
+>calibrateADC();
+
+`I see that calibration() function does perform only ADC gain calibration, by using 2.5V reference source. We also need to compensate ADC DC offset. Should we all we use for that purpose the 3rd ADC input connected to GND? `
+
+You are absolutely correct. Compensating for DC offset alongside gain significantly improves accuracy, especially at low voltages. Using a 3rd ADC channel tied to a solid GND reference is the standard, practical approach for runtime 2-point linear calibration.
+Here is the updated, production-ready Arduino sketch with offset + gain calibration, plus hardware recommendations to ensure reliable offset measurement.
