@@ -99,6 +99,7 @@ struct DisplayMsg {
 void IRAM_ATTR handleButtonInterrupt();
 void panicTask(void *pvParameters);
 void heartbeatTask(void *pvParameters);
+//void socTask(void *pvParameters);
 void initOLED();
 void gpioConfig();
 void rdPanicCounter();
@@ -134,6 +135,9 @@ void setup() {
 
     // Create Display Task (Priority: 1) on Core 0
     xTaskCreatePinnedToCore(displayTask, "OLED_Task", 4096, NULL, 1, NULL, 0); 
+
+    // Creet Battery Monitoring Task (Prioriy: 0) on Core 1
+    //xTaskCreatePinnedToCore(heartbeatTask, "SOC", 4096, NULL, 0, NULL, 1);
 
     // Calibrate ADC
     Serial.println("Running 2-point ADC calibration (Offset + Gain)...");
@@ -254,11 +258,12 @@ uint32_t offset_sum = 0;
                 Config::adc_offset_counts, ref_avg, Config::adc_gain_v_per_count);
 }
 
+// For debuuging only
 float readBatteryVoltage() {
 
 }
 
-// --- Tasks ---
+// --- Core 0 Tasks ---
 void displayTask(void* pvParameters) {
     DisplayMsg msg;
     while (true) {  
@@ -308,6 +313,11 @@ void heartbeatTask(void *pvParameters) {
     //  Serial.printf("[Core 0] Normal Heartbeat... (Uptime: %lu s)\n", millis() / 1000);
         vTaskDelay(pdMS_TO_TICKS(1000));  
     }
-
 }
+
+// --- Core 1 Tasks ---
+//void socTask(void *pvParameters) {
+//
+ //   vTaskDelay(pdMS_TO_TICKS(1000));
+//}
 
