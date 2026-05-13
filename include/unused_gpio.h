@@ -9,8 +9,8 @@
 // C++17: constexpr std::array with aggregate initialization
 // Excludes: Used pins (2,4,5,6,10-14,21,47,48), Strapping (0,3,45,46), 
 // USB (19,20), Internal Flash (26-32), PSRAM (33-37), UART0 (43,44)
-constexpr std::array<int, 11> kUnusedGpios = {
-    1, 9, 15, 16, 17, 18, 38, 39, 40, 41, 42
+constexpr std::array<int, 8> kUnusedGpios = {
+    1, 15, 16, 17, 18, 38, 39, 40
 };
 
 // Compile-time safety check: ensures no pin exceeds hardware limit
