@@ -71,11 +71,13 @@ namespace Config {
     constexpr int TFT_BLACK = 0x0000;
 
   // ================= CALIBRATION & FILTERING =================
-    float adc_volts_per_count = 0.0f;
+    float adc_offset_counts = 0.0f;
+    float adc_gain_v_per_count = 0.0f;
     bool is_calibrated = false;
     float bat_voltage_filtered = 0.0f;
-    constexpr int CAL_SAMPLES = 200;
-    constexpr int READ_SAMPLES = 32; 
+
+    constexpr int CAL_SAMPLES = 500;   // More samples for stable offset/gain
+    constexpr int READ_SAMPLES = 32;
 }
 
 // Global Objects
@@ -124,17 +126,6 @@ void setup() {
     // Initialize ADC
     initADC();
 
-    // Calibrate ADC
-    Serial.println("Calibrating ADC using 2.5V reference...");
-    calibrateADC();
-
-    if (Config::is_calibrated) {
-    Serial.println("✓ Calibration successful. Monitoring battery...");
-  } else {
-    Serial.println("✗ Calibration failed! Check 2.5V reference connection.");
-    while(1) delay(1000); // Halt until fixed
-  }
- 
     // Create a Queue for Display only 1 Msg
     displayQueue = xQueueCreate(1, sizeof(DisplayMsg));
 
@@ -143,6 +134,18 @@ void setup() {
 
     // Create Display Task (Priority: 1) on Core 0
     xTaskCreatePinnedToCore(displayTask, "OLED_Task", 4096, NULL, 1, NULL, 0); 
+
+    // Calibrate ADC
+    Serial.println("Running 2-point ADC calibration (Offset + Gain)...");
+    calibrateADC();
+
+    if (Config::is_calibrated) {
+    Serial.println("✓ Calibration successful. Monitoring battery...");
+    } else {
+    Serial.println("✗ Calibration failed! Check 2.5V reference connection.");
+    while(1) delay(1000); // Halt until fixed
+    }
+    Serial.println("✓ Calibration complete. Monitoring battery...");
 
      // Get battery voltage
     float Vbat = readBatteryVoltage();
@@ -216,47 +219,43 @@ void initADC() {
   #else
     analogSetPinAttenuation(Config::BAT_ADC_PIN, ADC_11db); // Arduino-ESP32 v2.x
     analogSetPinAttenuation(Config::REF_ADC_PIN, ADC_11db);
+    analogSetPinAttenuation(Config::OFFSET_ADC_PIN, ADC_11db);
   #endif
 }
 
 void calibrateADC() {
-  uint32_t raw_sum = 0;
-  for (int i = 0; i < Config::CAL_SAMPLES; i++) {
-    raw_sum += analogRead(Config::REF_ADC_PIN);
-    delay(1); // Allow ADC capacitor to settle
-  }
+uint32_t offset_sum = 0;
+  for (int i = 0; i < Config::CAL_SAMPLES; i++) offset_sum += analogRead(Config::OFFSET_ADC_PIN);
+  
+  uint32_t ref_sum = 0;
+  for (int i = 0; i < Config::CAL_SAMPLES; i++) ref_sum += analogRead(Config::REF_ADC_PIN);
 
-  float raw_avg = raw_sum / (float) Config::CAL_SAMPLES;
+  float offset_avg = offset_sum / (float)Config::CAL_SAMPLES;
+  float ref_avg    = ref_sum / (float)Config::CAL_SAMPLES;
 
-  // Sanity check: 2.5V at 11dB atten should read ~3000-3200 on 12-bit ADC
-  if (raw_avg < 2500 || raw_avg > 3800) {
-    Serial.printf("⚠ Ref ADC out of range: %.1f (expected ~3100)\n", raw_avg);
+  // Sanity check: DC offset schould be <= 150 counts
+  if (offset_avg > 150) {
+    Serial.printf("⚠ Offset too high: %.1f counts. Check GND connection.\n", offset_avg);
     return;
   }
 
-  // Calculate actual volts per ADC count
-  Config::adc_volts_per_count = Config:: REF_VOLTAGE / raw_avg;
+// Sanity check: 2.5V at 11dB atten should read ~3000-3200 on 12-bit ADC
+  if (ref_avg < 2500 || ref_avg > 3800) {
+    Serial.printf("⚠ Ref ADC out of range: %.1f (expected ~3100)\n", ref_avg);
+    return;
+  }
+
+ // 2-point linear calibration: V = (Raw - Offset) * Gain
+  Config::adc_offset_counts = offset_avg;
+  Config::adc_gain_v_per_count = Config::REF_VOLTAGE / (ref_avg - offset_avg);
   Config::is_calibrated = true;
 
-  Serial.printf("Ref Raw: %.1f | Gain: %.6f V/count\n", raw_avg, Config::is_calibrated);
+  Serial.printf("Offset: %.1f | Ref Raw: %.1f | Gain: %.6f V/count\n", 
+                Config::adc_offset_counts, ref_avg, Config::adc_gain_v_per_count);
 }
 
 float readBatteryVoltage() {
-if (!Config::is_calibrated) return 0.0f;
 
-  uint32_t raw_sum = 0;
-  for (int i = 0; i < Config::READ_SAMPLES; i++) {
-    raw_sum += analogRead(Config::BAT_ADC_PIN);
-  }
-
-  float raw_avg = raw_sum / (float) Config::READ_SAMPLES;
-  float v_divided = raw_avg * Config:: adc_volts_per_count;
-  float v_battery = v_divided / Config::DIVIDER_RATIO;
-
-  // Exponential Moving Average for stable readings
-  const float alpha = 0.15;
-  Config::bat_voltage_filtered = (alpha * v_battery) + ((1.0 - alpha) * Config::bat_voltage_filtered);
-  return Config::bat_voltage_filtered;
 }
 
 // --- Tasks ---

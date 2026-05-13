@@ -85,3 +85,37 @@ If you want to recalibrate without rebooting (e.g., via serial command or button
 
 You are absolutely correct. Compensating for DC offset alongside gain significantly improves accuracy, especially at low voltages. Using a 3rd ADC channel tied to a solid GND reference is the standard, practical approach for runtime 2-point linear calibration.
 Here is the updated, production-ready Arduino sketch with offset + gain calibration, plus hardware recommendations to ensure reliable offset measurement.
+
+🔍 How the 2-Point Calibration Works
+The ESP32-S3 ADC transfer function is approximately linear but has two systematic errors:
+
+Offset Error: `ADC(0V) ≠ 0 counts`
+Gain Error: `Slope ≠ Ideal (3.3V / 4095)`
+
+By measuring two known points:
+`V₁ = 0V → Raw₁ = offset_counts`
+`V₂ = 2.5V → Raw₂ = ref_avg`
+
+We solve for the calibrated voltage:
+`V_calibrated = (Raw - offset_counts) × [V_ref / (ref_avg - offset_counts)]`
+This automatically cancels both offset and gain errors in a single runtime operation.
+
+⚠️ Critical Hardware Recommendations for Offset Pin
+To ensure the offset measurement is stable and accurate:
+
+- GND Connection: Tie `GPIO9` directly to the analog ground plane (not digital GND). Use a short, thick trace.
+
+- Noise Filtering: Place a `100nF` ceramic capacitor from `GPIO9 to AGND`. Add a `10kΩ` series resistor if GND has switching noise.
+
+- Pin Configuration: Do not enable internal pull-ups/pull-downs on `OFFSET_ADC_PIN`. Leave it floating in hardware but tied to `GND` externally.
+
+- Averaging: `CAL_SAMPLES = 500` is intentional. Offset drifts slightly with temperature and power-up transients. More samples = stable baseline.
+
+📊 Is Offset Calibration Really Necessary?
+
+- LiPo SOC monitoring: 	Offset typically contributes `<15mV` error at 11dB attenuation. After voltage divider scaling, this is `~0.05V` at battery terminals. SOC error: `~1-2%`. Often acceptable without offset calibration.
+
+- Precision instrumentation: Mandatory. Use the 2-point method above.
+
+- Wide temperature range: Offset drifts `~0.5-1 count/°C`. Consider periodic recalibration or store factory offset in NVS.
+
