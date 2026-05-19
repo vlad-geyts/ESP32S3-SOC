@@ -1,3 +1,59 @@
+> From Chat GPT ---------------------------------------------------------------------------------------------
+**Important Accuracy Notes**
+
+The ESP32-S3 ADC is known for:
+
+- nonlinearity
+- noise
+- chip-to-chip Vref variation
+
+Raw readings are usually not precision-grade.
+Typical internal Vref: 1100mV, but actual value varies between chips.
+
+
+**Near-Ground Behavior**
+
+The ADC can technically measure close to 0V, but:
+
+- lowest few counts are noisy
+- offset error exists
+- readings below ~50mV may be unreliable
+
+Practical low-end accuracy usually starts around: 20mV–50mV
+
+
+**Source Impedance Matters**
+
+ESP32 ADC sample-and-hold capacitor is small.
+
+Recommended source impedance:
+
+< 2.5kΩ ideally
+< 10kΩ maximum practical
+
+Higher impedance causes:
+
+- gain error
+- unstable readings
+- nonlinearity
+
+Often a buffer op-amp or RC filter is used.
+
+
+**Recommended Real-World Range**
+
+For good linearity on ESP32-S3:
+
+Attenuation	Recommended Accurate Range
+- 0 dB	0.1V – 0.9V
+- `11 dB	0.15V – 2.8V`
+
+Top-end near full scale becomes increasingly nonlinear.
+
+
+
+> From Qwen ----------------------------------------------------------------------------------------
+
 🔍 Key Rationale & Design Notes
 1. ADC Selection (GPIO7 & GPIO8)
 
