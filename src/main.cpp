@@ -38,12 +38,12 @@ namespace Config {
     constexpr float REF_VOLTAGE = 2.50f;
 
     // Voltage divider ratio: R_bottom / (R_top + R_bottom)
-    // R_top=120k, R_bottom=75k -> 75/(120+75) = 0.3846
-    constexpr float DIVIDER_RATIO = 0.3846f; 
+    // R_top=120k, R_bottom=75k -> 10.5/(32.4+10.5) = 0.244755
+    constexpr float DIVIDER_RATIO = 0.244755f; 
 
     // 2cells LiPo boundaries (adjust to your chemistry/protection cutoff)
     constexpr float BAT_FULL_V   = 8.40f; // 4.20V * 2
-    constexpr float BAT_CUTOFF_V = 6.6f; // 3.30V * 2 (safe discharge limit)
+    constexpr float BAT_CUTOFF_V = 6.60f; // 3.30V * 2 (safe discharge limit)
 
     // === OLED SPI Pins (FSPI Hardware Primary) ===
     constexpr int OLED_CS   = 10;
@@ -114,6 +114,8 @@ void setup() {
     delay(1000);
     Serial.begin(115200);
     delay(3000);
+
+     Serial.println(".................................");
 
     //Terminate unused GPIOs EARLY (before peripheral init)
     ConfigureUnusedGpios();
