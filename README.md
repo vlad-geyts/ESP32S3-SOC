@@ -290,3 +290,76 @@ ASPECT                                  FILTER RAW ADC COUNTS                   
 *Dynamic Calibration*                   ✅ Superior: New calibration applied to stable filtered baseline        ⚠️ Filter state carries old calibration; sudden jumps if recalibrated mid-stream
 *Noise Profile*                         Matches native ADC quantization noise                                   Scaled noise magnitude, but identical SNR
 *Memory/State*                          Stores `1 uint32_t` or `float`                                          Stores `1 float`
+
+
+🧮 The Mathematical Reality
+V = G × (Raw - O)
+EMA(V) = G × EMA(Raw) - G × O   ← Identical result if G, O are constant
+
+So under normal conditions, both approaches converge to the exact same voltage.
+
+⚠️ The Critical Exception: Calibration Updates
+If you ever `recalibrate during runtime` (e.g., every 5 minutes, or on temperature change), filtering raw counts is strictly better:
+- *Raw counts*: Filter state stays clean. New `G` and `O` are applied post-filter → smooth transition.
+- *Scaled voltage* : Filter state contains values scaled with old `G/O`. Changing calibration causes an immediate voltage step, triggering the EMA to "chase" the new baseline → artificial SOC glitch.
+
+
+💻 **Code Comparison**
+*Option A: Filter Raw Counts (Recommended if dynamic calibration)*
+
+>float raw_filtered = 0.0;
+>float readBatteryVoltage() {
+>  uint32_t raw_sum = 0;
+>  for(int i=0; i<READ_SAMPLES; i++) raw_sum += analogRead(BAT_ADC_PIN);
+>  float raw = raw_sum / (float)READ_SAMPLES;
+>
+>  // EMA on raw counts
+>  raw_filtered = (0.15 * raw) + (0.85 * raw_filtered);
+>
+>  // Apply calibration AFTER filtering
+>  return (raw_filtered - adc_offset_counts) * adc_gain_v_per_count / DIVIDER_RATIO;
+>}
+
+
+*Option B: Filter Scaled Voltage (Your current approach)*
+
+>float bat_voltage_filtered = 0.0;
+>float readBatteryVoltage() {
+>  uint32_t raw_sum = 0;
+>  for(int i=0; i<READ_SAMPLES; i++) raw_sum += analogRead(BAT_ADC_PIN);
+>  float raw = raw_sum / (float)READ_SAMPLES;
+>
+>  // Scale first
+>  float v_bat = (raw - adc_offset_counts) * adc_gain_v_per_count / DIVIDER_RATIO;
+>
+>  // EMA on voltage
+>  bat_voltage_filtered = (0.15 * v_bat) + (0.85 * bat_voltage_filtered);
+>  return bat_voltage_filtered;
+}
+
+
+🎯 **Recommendation for Your Project**
+
+USE CASE                                            BEST CHOICE
+*Boot-only calibration* (as in current sketch)      ✅ *Scaled Voltage* (simpler debugging, direct SOC input)
+*Periodic/runtime recalibration*                    ✅ *Raw ADC Counts* (avoids filter state corruption)
+*Integer-only / low-power MCU migration*            ✅ *Raw ADC Counts* (keeps math in integers longer)
+*ESP32-S3 with Wi-Fi/SPI load*                      Either works; FP overhead is irrelevant
+
+Given your current architecture (calibration at boot, stable `+2.5V` reference, SOC calculation), 8stick with scaled voltage8. It's cleaner, easier to log, and mathematically equivalent. Only switch to raw counts if you add periodic recalibration or need to port to a fixed-point MCU later.
+
+
+🔧 **Pro Tip: Hybrid Approach (Best of Both Worlds)**
+If you want debug-friendly output but raw-count filtering stability:
+
+>float raw_filtered = 0.0; // Global
+>float readBatteryVoltage() {
+>  // ... read & average raw ...
+>  raw_filtered = (0.15 * raw_avg) + (0.85 * raw_filtered);
+>  
+>  // Convert to volts only at output
+>  float v_bat = (raw_filtered - adc_offset_counts) * adc_gain_v_per_count / DIVIDER_RATIO;
+>  return v_bat;
+>}
+
+This keeps the filter state immune to calibration changes while still returning human-readable volts.
