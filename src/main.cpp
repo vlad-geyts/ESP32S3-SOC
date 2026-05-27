@@ -151,7 +151,6 @@ void setup() {
     Serial.println("✗ Calibration failed! Check 2.5V reference connection.");
     while(1) delay(1000); // Halt until fixed
     }
-    //Serial.println("✓ Calibration complete. Monitoring battery...");
 
      // Get battery voltage
     float Vbat = readBatteryVoltage();
