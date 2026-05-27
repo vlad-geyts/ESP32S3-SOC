@@ -151,7 +151,7 @@ void setup() {
     Serial.println("✗ Calibration failed! Check 2.5V reference connection.");
     while(1) delay(1000); // Halt until fixed
     }
-    Serial.println("✓ Calibration complete. Monitoring battery...");
+    //Serial.println("✓ Calibration complete. Monitoring battery...");
 
      // Get battery voltage
     float Vbat = readBatteryVoltage();
@@ -232,9 +232,11 @@ void initADC() {
 void calibrateADC() {
 uint32_t offset_sum = 0;
   for (int i = 0; i < Config::CAL_SAMPLES; i++) offset_sum += analogRead(Config::OFFSET_ADC_PIN);
-  
+ //   Serial.printf("Offset sum @ 500 samples = : %d \n", offset_sum);
+
   uint32_t ref_sum = 0;
   for (int i = 0; i < Config::CAL_SAMPLES; i++) ref_sum += analogRead(Config::REF_ADC_PIN);
+ //   Serial.printf("Ref sum @ 500 samples = : %d \n", ref_sum);
 
   float offset_avg = offset_sum / (float)Config::CAL_SAMPLES;
   float ref_avg    = ref_sum / (float)Config::CAL_SAMPLES;
@@ -246,8 +248,8 @@ uint32_t offset_sum = 0;
   }
 
 // Sanity check: 2.5V at 11dB atten should read ~3000-3200 on 12-bit ADC
-  if (ref_avg < 2500 || ref_avg > 3800) {
-    Serial.printf("⚠ Ref ADC out of range: %.1f (expected ~3100)\n", ref_avg);
+  if (ref_avg < 2900 || ref_avg > 3100) {
+    Serial.printf("⚠ Ref ADC out of range: %.1f (expected ~3000)\n", ref_avg);
     return;
   }
 
@@ -256,8 +258,9 @@ uint32_t offset_sum = 0;
   Config::adc_gain_v_per_count = Config::REF_VOLTAGE / (ref_avg - offset_avg);
   Config::is_calibrated = true;
 
-  Serial.printf("Offset: %.1f | Ref Raw: %.1f | Gain: %.6f V/count\n", 
+  Serial.printf("Offset: %.6f | Ref Raw: %.3f | Gain: %.9f V/count\n", 
                 Config::adc_offset_counts, ref_avg, Config::adc_gain_v_per_count);
+  Serial.printf("is_calibrated =: %b \n", Config::is_calibrated);              
 }
 
 // For debuuging only
