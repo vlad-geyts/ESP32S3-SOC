@@ -268,3 +268,16 @@ Need step-change detection                  0.50 + or switch           Reacts in
 >float delta = abs(v_battery - bat_voltage_filtered);
 >float adaptive_alpha = constrain(delta * 2.0, 0.05, 0.5);
 >bat_voltage_filtered = (adaptive_alpha * v_battery) + ((1.0 - adaptive_alpha) * bat_voltage_filtered);
+
+This increases responsiveness during sudden voltage changes while maintaining heavy smoothing during steady state.
+
+
+> Qustion by Me --------------------------------------------------
+*What are pros and cons of using raw ADC counts vs scaled voltage?*
+
+
+> Respond by Qwen ------------------------------------------------
+📊 *Quick Verdict*
+For `constant calibration parameters`, filtering raw ADC counts vs. scaled voltage is `mathematically identical`. The choice comes down to `workflow, debugging, and how you handle calibration updates`.
+
+🔍 **Detailed Comparison**
