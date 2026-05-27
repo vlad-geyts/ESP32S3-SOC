@@ -281,3 +281,12 @@ This increases responsiveness during sudden voltage changes while maintaining he
 For `constant calibration parameters`, filtering raw ADC counts vs. scaled voltage is `mathematically identical`. The choice comes down to `workflow, debugging, and how you handle calibration updates`.
 
 🔍 **Detailed Comparison**
+
+ASPECT                                  FILTER RAW ADC COUNTS                                                   FILTER SCALED VOLTAGE
+*Mathematical Behavior*          	    Identical to scaled voltage if `gain` & `offset` are constant           Identical to raw counts if `gain` & `offset` are constant
+*CPU Overhead*                          Slightly lower (avoid FP math before EMA)                               Negligible on ESP32-S3 (hardware FPU)
+*Debugging/Logging*                     Harder (read 0–4095, must convert mentally)                             Immediate (human-readable volts)
+*Threshold Logic*                       Requires conversion before comparisons                                  Directly usable (if (v < 6.0))
+*Dynamic Calibration*                   ✅ Superior: New calibration applied to stable filtered baseline        ⚠️ Filter state carries old calibration; sudden jumps if recalibrated mid-stream
+*Noise Profile*                         Matches native ADC quantization noise                                   Scaled noise magnitude, but identical SNR
+*Memory/State*                          Stores `1 uint32_t` or `float`                                          Stores `1 float`
