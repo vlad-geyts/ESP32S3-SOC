@@ -75,6 +75,7 @@ namespace Config {
     float adc_gain_v_per_count = 0.0f;
     bool is_calibrated = false;
     float bat_voltage_filtered = 0.0f;
+    constexpr float alpha = 0.15;
 
     constexpr int CAL_SAMPLES = 500;   // More samples for stable offset/gain
     constexpr int READ_SAMPLES = 32;
@@ -154,6 +155,8 @@ void setup() {
 
      // Get battery voltage
     float Vbat = readBatteryVoltage();
+    Serial.printf("Battery voltage: %.3f\n", Vbat);
+    
 
     // convert message to string and save it to buffer
     // Limted to 20 characters per line @ small font
@@ -264,7 +267,19 @@ uint32_t offset_sum = 0;
 
 // For debuuging only
 float readBatteryVoltage() {
+  if (!Config::is_calibrated) return 0.0;
 
+  uint32_t raw_sum = 0;
+  for (int i = 0; i < Config::READ_SAMPLES; i++) raw_sum += analogRead(Config::BAT_ADC_PIN);
+  float raw_avg = raw_sum / (float)Config::READ_SAMPLES;
+
+  // Apply 2-point calibration
+  float v_divided = (raw_avg - Config::adc_offset_counts) * Config::adc_gain_v_per_count;
+  float v_battery = v_divided / Config::DIVIDER_RATIO;
+
+  // Exponential Moving Average
+  Config::bat_voltage_filtered = (Config::alpha * v_battery) + ((1.0 - Config::alpha) * Config::bat_voltage_filtered);
+  return Config::bat_voltage_filtered;
 }
 
 // --- Core 0 Tasks ---
