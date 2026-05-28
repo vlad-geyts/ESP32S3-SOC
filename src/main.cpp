@@ -274,12 +274,13 @@ float readBatteryVoltage() {
   float raw_avg = raw_sum / (float)Config::READ_SAMPLES;
 
   // Apply 2-point calibration
-  float v_divided = (raw_avg - Config::adc_offset_counts) * Config::adc_gain_v_per_count;
-  float v_battery = v_divided / Config::DIVIDER_RATIO;
+//  float v_divided = (raw_avg - Config::adc_offset_counts) * Config::adc_gain_v_per_count;
+//  float v_battery = v_divided / Config::DIVIDER_RATIO;
 
   // Exponential Moving Average
-  Config::bat_voltage_filtered = (Config::alpha * v_battery) + ((1.0 - Config::alpha) * Config::bat_voltage_filtered);
-  return Config::bat_voltage_filtered;
+ // Config::bat_voltage_filtered = (Config::alpha * v_battery) + ((1.0 - Config::alpha) * Config::bat_voltage_filtered);
+//return Config::bat_voltage_filtered;
+return raw_avg;
 }
 
 // --- Core 0 Tasks ---
