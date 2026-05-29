@@ -35,11 +35,10 @@ namespace Config {
     constexpr int OFFSET_ADC_PIN = 9;  // ADC1_CH8 -> Tied to GND
 
     // Precision reference voltage (adjust if your source differs slightly)
-    constexpr float REF_VOLTAGE = 2.50f;
+    constexpr float REF_VOLTAGE = 2.111f;
 
     // Voltage divider ratio: R_bottom / (R_top + R_bottom)
-    // R_top=120k, R_bottom=75k -> 10.5/(32.4+10.5) = 0.244755
-    constexpr float DIVIDER_RATIO = 0.244755f; 
+    constexpr float DIVIDER_RATIO = 0.273154281f; 
 
     // 2cells LiPo boundaries (adjust to your chemistry/protection cutoff)
     constexpr float BAT_FULL_V   = 8.40f; // 4.20V * 2
@@ -78,7 +77,8 @@ namespace Config {
     constexpr float alpha = 0.15;
 
     constexpr int CAL_SAMPLES = 500;   // More samples for stable offset/gain
-    constexpr int READ_SAMPLES = 8192;   // initial was 32
+    constexpr int READ_SAMPLES = 32; //8192 - 1sec;   // initial was 32
+    constexpr int SEAD_INTERRATIONS =64;
 }
 
 // Global Objects
@@ -143,21 +143,21 @@ void setup() {
     //xTaskCreatePinnedToCore(socTask, "SOC", 4096, NULL, 2, NULL, 0);
 
     // Calibrate ADC
-    //Serial.println("Running 2-point ADC calibration (Offset + Gain)...");
-    //calibrateADC();
+    Serial.println("Running 2-point ADC calibration (Offset + Gain)...");
+    calibrateADC();
 
-    //if (Config::is_calibrated) {
-    //Serial.println("✓ Calibration successful. Monitoring battery...");
-    //} else {
-    //Serial.println("✗ Calibration failed! Check 2.5V reference connection.");
-    //while(1) delay(1000); // Halt until fixed
-    //}
+    if (Config::is_calibrated) {
+    Serial.println("✓ Calibration successful. Monitoring battery...");
+    } else {
+    Serial.println("✗ Calibration failed! Check 2.111V reference connection.");
+    while(1) delay(1000); // Halt until fixed
+    }
 
-     // Get battery voltage
-    //float Vbat = readBatteryVoltage();
-    //Serial.printf("Battery voltage: %.3f\n", Vbat);
+    // Get battery voltage sead for exponential moving average
+    Serial.println("Generating battery voltage sead for exponential moving avetrage funtion");
+    for (int i = 0; i < Config::SEAD_INTERRATIONS; i++) Config::bat_voltage_filtered  = readBatteryVoltage();
+    Serial.printf("Generating battery voltage sead: %.3f \n", Config::bat_voltage_filtered); 
     
-
     // convert message to string and save it to buffer
     // Limted to 20 characters per line @ small font
     //sprintf(MsgBuf, "Vbat=%.3f", Vbat);        
@@ -250,7 +250,7 @@ uint32_t offset_sum = 0;
   }
 
 // Sanity check: 2.5V at 11dB atten should read ~3000-3200 on 12-bit ADC
-  if (ref_avg < 2900 || ref_avg > 3100) {
+  if (ref_avg < 2450 || ref_avg > 2580) {
     Serial.printf("⚠ Ref ADC out of range: %.1f (expected ~3000)\n", ref_avg);
     return;
   }
@@ -265,32 +265,22 @@ uint32_t offset_sum = 0;
   Serial.printf("is_calibrated =: %b \n", Config::is_calibrated);              
 }
 
-// For debuuging only
-float readBatteryVoltage() {
-//Set Strob Signal HIGH
-digitalWrite(Config::StrobPin, HIGH);
 
- // if (!Config::is_calibrated) return 0.0;
+float readBatteryVoltage() {
+ if (!Config::is_calibrated) return 0.0;
 
   uint32_t raw_sum = 0;
   for (int i = 0; i < Config::READ_SAMPLES; i++) raw_sum += analogRead(Config::BAT_ADC_PIN);
   float raw_avg = raw_sum / (float)Config::READ_SAMPLES;
 
   // Apply 2-point calibration
-//  float v_divided = (raw_avg - Config::adc_offset_counts) * Config::adc_gain_v_per_count;
-//  float v_battery = v_divided / Config::DIVIDER_RATIO;
+ float v_divided = (raw_avg - Config::adc_offset_counts) * Config::adc_gain_v_per_count;
+ float v_battery = v_divided / Config::DIVIDER_RATIO;
 
   // Exponential Moving Average
- // Config::bat_voltage_filtered = (Config::alpha * v_battery) + ((1.0 - Config::alpha) * Config::bat_voltage_filtered);
-//return Config::bat_voltage_filtered;
+  Config::bat_voltage_filtered = (Config::alpha * v_battery) + ((1.0 - Config::alpha) * Config::bat_voltage_filtered);
 
- Config::bat_voltage_filtered = (Config::alpha * raw_avg) + ((1.0 - Config::alpha) * Config::bat_voltage_filtered);
-//return Config::bat_voltage_filtered;
-
-//Set Strob Signal LOW
-digitalWrite(Config::StrobPin, LOW);
-//return raw_avg;
-return Config::bat_voltage_filtered;
+  return Config::bat_voltage_filtered;
 }
 
 // --- Core 0 Tasks ---
@@ -345,7 +335,7 @@ void heartbeatTask(void *pvParameters) {
         float Vbat = readBatteryVoltage();
         Serial.printf("Battery voltage: %.3f\n", Vbat);
 
-        vTaskDelay(pdMS_TO_TICKS(2000));  
+        vTaskDelay(pdMS_TO_TICKS(100));  
     }
 }
 
