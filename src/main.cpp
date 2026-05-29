@@ -78,7 +78,7 @@ namespace Config {
     constexpr float alpha = 0.15;
 
     constexpr int CAL_SAMPLES = 500;   // More samples for stable offset/gain
-    constexpr int READ_SAMPLES = 32;
+    constexpr int READ_SAMPLES = 8192;   // initial was 32
 }
 
 // Global Objects
@@ -139,30 +139,30 @@ void setup() {
     // Create Display Task (Priority: 1) on Core 0
     xTaskCreatePinnedToCore(displayTask, "OLED_Task", 4096, NULL, 1, NULL, 0); 
 
-    // Creet Battery Monitoring Task (Prioriy: 0) on Core 1
-    //xTaskCreatePinnedToCore(heartbeatTask, "SOC", 4096, NULL, 0, NULL, 1);
+    // Create Battery Monitoring Task (Prioriy: 2) on Core 0
+    //xTaskCreatePinnedToCore(socTask, "SOC", 4096, NULL, 2, NULL, 0);
 
     // Calibrate ADC
-    Serial.println("Running 2-point ADC calibration (Offset + Gain)...");
-    calibrateADC();
+    //Serial.println("Running 2-point ADC calibration (Offset + Gain)...");
+    //calibrateADC();
 
-    if (Config::is_calibrated) {
-    Serial.println("✓ Calibration successful. Monitoring battery...");
-    } else {
-    Serial.println("✗ Calibration failed! Check 2.5V reference connection.");
-    while(1) delay(1000); // Halt until fixed
-    }
+    //if (Config::is_calibrated) {
+    //Serial.println("✓ Calibration successful. Monitoring battery...");
+    //} else {
+    //Serial.println("✗ Calibration failed! Check 2.5V reference connection.");
+    //while(1) delay(1000); // Halt until fixed
+    //}
 
      // Get battery voltage
-    float Vbat = readBatteryVoltage();
-    Serial.printf("Battery voltage: %.3f\n", Vbat);
+    //float Vbat = readBatteryVoltage();
+    //Serial.printf("Battery voltage: %.3f\n", Vbat);
     
 
     // convert message to string and save it to buffer
     // Limted to 20 characters per line @ small font
-    sprintf(MsgBuf, "Vbat=%.3f", Vbat);        
+    //sprintf(MsgBuf, "Vbat=%.3f", Vbat);        
     // Send message string from buffer to OLED display
-    logStatus(MsgBuf, Config::TFT_CYAN);
+    //logStatus(MsgBuf, Config::TFT_CYAN);
 }
 
 void loop() {
@@ -267,7 +267,10 @@ uint32_t offset_sum = 0;
 
 // For debuuging only
 float readBatteryVoltage() {
-  if (!Config::is_calibrated) return 0.0;
+//Set Strob Signal HIGH
+digitalWrite(Config::StrobPin, HIGH);
+
+ // if (!Config::is_calibrated) return 0.0;
 
   uint32_t raw_sum = 0;
   for (int i = 0; i < Config::READ_SAMPLES; i++) raw_sum += analogRead(Config::BAT_ADC_PIN);
@@ -280,7 +283,14 @@ float readBatteryVoltage() {
   // Exponential Moving Average
  // Config::bat_voltage_filtered = (Config::alpha * v_battery) + ((1.0 - Config::alpha) * Config::bat_voltage_filtered);
 //return Config::bat_voltage_filtered;
-return raw_avg;
+
+ Config::bat_voltage_filtered = (Config::alpha * raw_avg) + ((1.0 - Config::alpha) * Config::bat_voltage_filtered);
+//return Config::bat_voltage_filtered;
+
+//Set Strob Signal LOW
+digitalWrite(Config::StrobPin, LOW);
+//return raw_avg;
+return Config::bat_voltage_filtered;
 }
 
 // --- Core 0 Tasks ---
@@ -331,13 +341,29 @@ void heartbeatTask(void *pvParameters) {
         ledOn = !ledOn;         // Toggle state
 
     //  Serial.printf("[Core 0] Normal Heartbeat... (Uptime: %lu s)\n", millis() / 1000);
-        vTaskDelay(pdMS_TO_TICKS(1000));  
+
+        float Vbat = readBatteryVoltage();
+        Serial.printf("Battery voltage: %.3f\n", Vbat);
+
+        vTaskDelay(pdMS_TO_TICKS(2000));  
     }
 }
 
-// --- Core 1 Tasks ---
+// --- Core 0 Tasks ---
 //void socTask(void *pvParameters) {
-//
- //   vTaskDelay(pdMS_TO_TICKS(1000));
+
+    // Get battery voltage
+    //float Vbat = readBatteryVoltage();
+ //   float Vbat =3000.333;
+ //   
+    
+
+    // convert message to string and save it to buffer
+    // Limted to 20 characters per line @ small font
+    //sprintf(MsgBuf, "Vbat=%.3f", Vbat);        
+    // Send message string from buffer to OLED display
+    //logStatus(MsgBuf, Config::TFT_YELLOW);
+
+//   vTaskDelay(pdMS_TO_TICKS(5000));
 //}
 
