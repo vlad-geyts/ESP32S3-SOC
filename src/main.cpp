@@ -156,7 +156,7 @@ void setup() {
     // Get battery voltage sead for exponential moving average
     Serial.println("Generating battery voltage sead for exponential moving avetrage funtion");
     for (int i = 0; i < Config::SEAD_INTERRATIONS; i++) Config::bat_voltage_filtered  = readBatteryVoltage();
-    Serial.printf("Generating battery voltage sead: %.3f \n", Config::bat_voltage_filtered); 
+    Serial.printf("Generated battery voltage sead: %.3f \n", Config::bat_voltage_filtered); 
     
     // convert message to string and save it to buffer
     // Limted to 20 characters per line @ small font
